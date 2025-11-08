@@ -87,11 +87,6 @@ class OceanBaseServerClient(BaseClient):
         return self._connection is not None and self._connection.open
     
     def execute(self, sql: str) -> Any:
-        """Execute SQL statement"""
-        # Print SQL for debugging
-        print(f"\n[SQL DEBUG] Executing SQL:")
-        print(f"{sql}")
-        
         conn = self._ensure_connection()
         
         with conn.cursor() as cursor:

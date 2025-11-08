@@ -129,12 +129,7 @@ class SeekdbEmbeddedClient(BaseClient):
         """Check connection status"""
         return self._connection is not None and self._initialized
     
-    def execute(self, sql: str) -> Any:
-        """Execute SQL statement"""
-        # Print SQL for debugging
-        print(f"\n[SQL DEBUG] Executing SQL:")
-        print(f"{sql}")
-        
+    def execute(self, sql: str) -> Any:   
         conn = self._ensure_connection()
         cursor = conn.cursor()
         
@@ -207,11 +202,7 @@ class SeekdbEmbeddedClient(BaseClient):
                 # For other types (like lists in IN clauses), convert to string
                 escaped = str(param).replace("'", "''")
                 embedded_sql = embedded_sql.replace('%s', f"'{escaped}'", 1)
-        
-        # Print SQL for debugging
-        print(f"\n[SQL DEBUG] Executing SQL (embedded):")
-        print(f"{embedded_sql}")
-        
+
         cursor = conn.cursor()
         try:
             cursor.execute(embedded_sql)
