@@ -21,7 +21,7 @@ SEEKDB_PATH = os.environ.get('SEEKDB_PATH', os.path.join(project_root, "seekdb_s
 SEEKDB_DATABASE = os.environ.get('SEEKDB_DATABASE', 'test')
 
 # Server mode
-SERVER_HOST = os.environ.get('SERVER_HOST', 'localhost')
+SERVER_HOST = os.environ.get('SERVER_HOST', '11.161.205.15')
 SERVER_PORT = int(os.environ.get('SERVER_PORT', '2881'))
 SERVER_DATABASE = os.environ.get('SERVER_DATABASE', 'test')
 SERVER_USER = os.environ.get('SERVER_USER', 'root')
@@ -50,10 +50,12 @@ class TestClientCreation:
         test_collection_name = "test_collection_" + str(int(time.time()))
         test_dimension = 128
         
-        # Create collection
+        # Create collection with HNSW configuration
+        from seekdbclient import HNSWConfiguration
+        config = HNSWConfiguration(dimension=test_dimension, distance='cosine')
         collection = client.create_collection(
             name=test_collection_name,
-            dimension=test_dimension
+            configuration=config
         )
         
         # Verify collection object
@@ -137,7 +139,7 @@ class TestClientCreation:
         # Test 5: get_or_create_collection - should get existing collection
         existing_collection = client.get_or_create_collection(
             name=test_collection_name,
-            dimension=test_dimension
+            configuration=config
         )
         assert existing_collection is not None
         assert existing_collection.name == test_collection_name
@@ -148,7 +150,7 @@ class TestClientCreation:
         test_collection_name_mgmt = "test_collection_mgmt_" + str(int(time.time()))
         new_collection = client.get_or_create_collection(
             name=test_collection_name_mgmt,
-            dimension=test_dimension
+            configuration=config
         )
         assert new_collection is not None
         assert new_collection.name == test_collection_name_mgmt
@@ -177,13 +179,14 @@ class TestClientCreation:
             assert "does not exist" in str(e)
             print(f"\n✅ delete_collection correctly raises ValueError for non-existent collection")
         
-        # Test 10: get_or_create_collection without dimension - should raise error for non-existent collection
-        try:
-            client.get_or_create_collection(name="non_existent_collection")
-            pytest.fail("get_or_create_collection should raise ValueError when collection doesn't exist and dimension is not provided")
-        except ValueError as e:
-            assert "dimension parameter is required" in str(e)
-            print(f"\n✅ get_or_create_collection correctly raises ValueError when dimension is missing")
+        # Test 10: get_or_create_collection without configuration - should use default configuration
+        test_collection_name_default = "test_collection_default_" + str(int(time.time()))
+        default_collection = client.get_or_create_collection(name=test_collection_name_default)
+        assert default_collection is not None
+        assert default_collection.name == test_collection_name_default
+        # Default dimension is 128
+        assert default_collection.dimension == 128
+        print(f"\n✅ get_or_create_collection successfully created collection with default configuration")
         
         # Test 11: count_collection - count the number of collections
         collection_count = client.count_collection()
@@ -205,10 +208,14 @@ class TestClientCreation:
         
         # Add some test data to test count and peek with data
         import uuid
+        import random
+        random.seed(42)  # For reproducibility
         test_ids = [str(uuid.uuid4()) for _ in range(3)]
+        # Generate vectors matching the collection's dimension
+        vectors = [[random.random() for _ in range(collection.dimension)] for _ in range(3)]
         collection.add(
             ids=test_ids,
-            vectors=[[1.0, 2.0, 3.0] for _ in range(3)],
+            vectors=vectors,
             documents=[f"Test document {i}" for i in range(3)],
             metadatas=[{"index": i} for i in range(3)]
         )

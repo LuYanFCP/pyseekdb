@@ -23,7 +23,7 @@ SEEKDB_PATH = os.environ.get('SEEKDB_PATH', os.path.join(project_root, "seekdb_s
 SEEKDB_DATABASE = os.environ.get('SEEKDB_DATABASE', 'test')
 
 # Server mode
-SERVER_HOST = os.environ.get('SERVER_HOST', 'localhost')
+SERVER_HOST = os.environ.get('SERVER_HOST', '11.161.205.15')
 SERVER_PORT = int(os.environ.get('SERVER_PORT', '2881'))
 SERVER_DATABASE = os.environ.get('SERVER_DATABASE', 'test')
 SERVER_USER = os.environ.get('SERVER_USER', 'root')
@@ -119,7 +119,9 @@ class TestCollectionQuery:
         
         # Create test collection
         collection_name = f"test_query_{int(time.time())}"
-        collection = client.create_collection(name=collection_name, dimension=3)
+        from seekdbclient import HNSWConfiguration
+        config = HNSWConfiguration(dimension=3, distance='l2')
+        collection = client.create_collection(name=collection_name, configuration=config)
         
         try:
             # Insert test data
@@ -225,7 +227,9 @@ class TestCollectionQuery:
         
         # Create test collection
         collection_name = f"test_query_{int(time.time())}"
-        collection = client.create_collection(name=collection_name, dimension=3)
+        from seekdbclient import HNSWConfiguration
+        config = HNSWConfiguration(dimension=3, distance='l2')
+        collection = client.create_collection(name=collection_name, configuration=config)
         
         try:
             # Insert test data
@@ -330,7 +334,9 @@ class TestCollectionQuery:
         
         # Create test collection
         collection_name = f"test_query_{int(time.time())}"
-        collection = client.create_collection(name=collection_name, dimension=3)
+        from seekdbclient import HNSWConfiguration
+        config = HNSWConfiguration(dimension=3, distance='l2')
+        collection = client.create_collection(name=collection_name, configuration=config)
         
         try:
             # Insert test data

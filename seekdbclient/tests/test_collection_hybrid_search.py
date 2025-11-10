@@ -23,7 +23,7 @@ SEEKDB_PATH = os.environ.get('SEEKDB_PATH', os.path.join(project_root, "seekdb_s
 SEEKDB_DATABASE = os.environ.get('SEEKDB_DATABASE', 'test')
 
 # Server mode
-SERVER_HOST = os.environ.get('SERVER_HOST', 'localhost')
+SERVER_HOST = os.environ.get('SERVER_HOST', '11.161.205.15')
 SERVER_PORT = int(os.environ.get('SERVER_PORT', '2881'))
 SERVER_DATABASE = os.environ.get('SERVER_DATABASE', 'test')
 SERVER_USER = os.environ.get('SERVER_USER', 'root')
@@ -44,9 +44,11 @@ class TestCollectionHybridSearch:
     def _create_test_collection(self, client, collection_name: str, dimension: int = 3):
         """Helper method to create a test collection"""
         # Use client.create_collection to create the collection
+        from seekdbclient import HNSWConfiguration
+        config = HNSWConfiguration(dimension=dimension, distance='l2')
         collection = client.create_collection(
             name=collection_name,
-            dimension=dimension
+            configuration=config
         )
         return collection
     

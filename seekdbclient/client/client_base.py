@@ -6,6 +6,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from typing import List, Optional, Sequence, Dict, Any, Union, TYPE_CHECKING, Tuple, Callable
+from dataclasses import dataclass
 
 from .base_connection import BaseConnection
 from .admin_client import AdminAPI, DEFAULT_TENANT
@@ -19,6 +20,29 @@ from .database import Database
 
 logger = logging.getLogger(__name__)
 
+# Default configuration constants
+DEFAULT_VECTOR_DIMENSION = 128
+DEFAULT_DISTANCE_METRIC = 'cosine'
+
+
+@dataclass
+class HNSWConfiguration:
+    """
+    HNSW (Hierarchical Navigable Small World) index configuration
+    
+    Args:
+        dimension: Vector dimension (number of elements in each vector)
+        distance: Distance metric for similarity calculation (e.g., 'l2', 'cosine', 'inner_product')
+    """
+    dimension: int
+    distance: str = 'l2'
+    
+    def __post_init__(self):
+        if self.dimension <= 0:
+            raise ValueError(f"dimension must be positive, got {self.dimension}")
+        if self.distance not in ['l2', 'cosine', 'inner_product']:
+            raise ValueError(f"distance must be one of ['l2', 'cosine', 'inner_product'], got {self.distance}")
+
 class ClientAPI(ABC):
     """
     Client API interface for collection operations only.
@@ -29,7 +53,7 @@ class ClientAPI(ABC):
     def create_collection(
         self,
         name: str,
-        dimension: Optional[int] = None,
+        configuration: Optional[HNSWConfiguration] = None,
         **kwargs
     ) -> "Collection":
         """Create collection"""
@@ -78,7 +102,7 @@ class BaseClient(BaseConnection, AdminAPI):
     def create_collection(
         self,
         name: str,
-        dimension: Optional[int] = None,
+        configuration: Optional[HNSWConfiguration] = None,
         **kwargs
     ) -> "Collection":
         """
@@ -86,14 +110,39 @@ class BaseClient(BaseConnection, AdminAPI):
         
         Args:
             name: Collection name
-            dimension: Vector dimension
-            **kwargs: Additional parameters
+            configuration: HNSW index configuration (HNSWConfiguration)
+                          If None, uses default configuration (dimension=128, distance='cosine')
+            **kwargs: Additional parameters 
             
         Returns:
             Collection object
+            
+        Examples:
+            # Using default configuration (dimension=128, distance='cosine')
+            >>> collection = client.create_collection('my_collection')
+            
+            # Using HNSW configuration with cosine distance
+            >>> config = HNSWConfiguration(dimension=768, distance='cosine')
+            >>> collection = client.create_collection('my_collection', configuration=config)
+            
+            # Using HNSW configuration with L2 distance
+            >>> config = HNSWConfiguration(dimension=768, distance='l2')
+            >>> collection = client.create_collection('my_collection', configuration=config)
         """
-        if dimension is None:
-            raise ValueError("dimension parameter is required for creating a collection")
+        # Use default configuration if not provided
+        if configuration is None:
+            configuration = HNSWConfiguration(dimension=DEFAULT_VECTOR_DIMENSION, distance=DEFAULT_DISTANCE_METRIC)
+        
+        # Validate configuration type
+        if not isinstance(configuration, HNSWConfiguration):
+            raise TypeError(f"configuration must be HNSWConfiguration, got {type(configuration)}")
+        
+        # Extract dimension and distance from configuration
+        dimension = configuration.dimension
+        distance = configuration.distance
+        
+        # HNSW is the only supported index type
+        index_type = 'hnsw'
         
         # Construct table name: c$v1${name}
         table_name = CollectionNames.table_name(name)
@@ -104,8 +153,8 @@ class BaseClient(BaseConnection, AdminAPI):
             document string,
             embedding vector({dimension}),
             metadata json,
-            FULLTEXT INDEX idx1(document),
-            VECTOR INDEX idx2 (embedding) with(distance=l2, type=hnsw, lib=vsag)
+            FULLTEXT INDEX idx_fts(document),
+            VECTOR INDEX idx_vec (embedding) with(distance={distance}, type={index_type}, lib=vsag)
         ) ORGANIZATION = HEAP;"""
         
         # Execute SQL to create table
@@ -277,7 +326,7 @@ class BaseClient(BaseConnection, AdminAPI):
     def get_or_create_collection(
         self,
         name: str,
-        dimension: Optional[int] = None,
+        configuration: Optional[HNSWConfiguration] = None,
         **kwargs
     ) -> "Collection":
         """
@@ -285,27 +334,19 @@ class BaseClient(BaseConnection, AdminAPI):
         
         Args:
             name: Collection name
-            dimension: Vector dimension (required if creating new collection)
+            configuration: HNSW index configuration (HNSWConfiguration)
+                          If None, uses default configuration (dimension=128, distance='cosine')
             **kwargs: Additional parameters for create_collection
             
         Returns:
             Collection object
-            
-        Raises:
-            ValueError: If collection doesn't exist and dimension is not provided
         """
         # First, try to get the collection
         if self.has_collection(name):
             return self.get_collection(name)
         
-        # Collection doesn't exist, create it
-        if dimension is None:
-            raise ValueError(
-                f"Collection '{name}' does not exist and dimension parameter is required "
-                f"for creating a new collection"
-            )
-        
-        return self.create_collection(name=name, dimension=dimension, **kwargs)
+        # Collection doesn't exist, create it with provided or default configuration
+        return self.create_collection(name=name, configuration=configuration, **kwargs)
     
     # ==================== Collection Internal Operations (Called by Collection) ====================
     # These methods are called by Collection objects, different clients implement different logic
