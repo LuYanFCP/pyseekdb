@@ -9,6 +9,7 @@ import time
 import json
 import uuid
 from pathlib import Path
+from typing import List
 
 # Add project path
 project_root = Path(__file__).parent.parent.parent
@@ -44,59 +45,97 @@ class TestCollectionHybridSearch:
     def _create_test_collection(self, client, collection_name: str, dimension: int = 3):
         """Helper method to create a test collection"""
         # Use client.create_collection to create the collection
+        # Note: If embedding_function is None, default embedding function will be used
+        # and dimension will be automatically updated to 384. We need to use the actual dimension.
         from seekdbclient import HNSWConfiguration
         config = HNSWConfiguration(dimension=dimension, distance='l2')
         collection = client.create_collection(
             name=collection_name,
             configuration=config
         )
-        return collection
+        # Return both collection and actual dimension (may be different from requested)
+        return collection, collection.dimension
     
-    def _insert_test_data(self, client, collection_name: str):
-        """Helper method to insert test data via SQL"""
+    def _generate_query_vector(self, dimension: int, base_vector: List[float] = [1.0, 2.0, 3.0]) -> List[float]:
+        """Generate a query vector with the correct dimension
+        
+        Args:
+            dimension: Target dimension
+            base_vector: Base vector pattern (default: [1.0, 2.0, 3.0])
+            
+        Returns:
+            Vector with the specified dimension
+        """
+        if dimension <= len(base_vector):
+            return base_vector[:dimension]
+        else:
+            # Extend if dimension is larger (repeat pattern)
+            extended = base_vector * ((dimension // len(base_vector)) + 1)
+            return extended[:dimension]
+    
+    def _insert_test_data(self, client, collection_name: str, dimension: int = 3):
+        """Helper method to insert test data via SQL
+        
+        Args:
+            client: Client instance
+            collection_name: Collection name
+            dimension: Actual dimension of the collection (used to generate vectors)
+        """
         table_name = f"c$v1${collection_name}"
+        
+        # Base vectors (3D) - will be extended or truncated to match actual dimension
+        base_vectors = [
+            [1.0, 2.0, 3.0],
+            [2.0, 3.0, 4.0],
+            [1.1, 2.1, 3.1],
+            [2.1, 3.1, 4.1],
+            [1.2, 2.2, 3.2],
+            [1.3, 2.3, 3.3],
+            [2.2, 3.2, 4.2],
+            [1.4, 2.4, 3.4]
+        ]
         
         # Insert test data with vectors, documents, and metadata
         # Data designed for hybrid search testing
         test_data = [
             {
                 "document": "Machine learning is a subset of artificial intelligence",
-                "embedding": [1.0, 2.0, 3.0],
+                "base_vector": base_vectors[0],
                 "metadata": {"category": "AI", "page": 1, "score": 95, "tag": "ml"}
             },
             {
                 "document": "Python programming language is widely used in data science",
-                "embedding": [2.0, 3.0, 4.0],
+                "base_vector": base_vectors[1],
                 "metadata": {"category": "Programming", "page": 2, "score": 88, "tag": "python"}
             },
             {
                 "document": "Deep learning algorithms for neural networks",
-                "embedding": [1.1, 2.1, 3.1],
+                "base_vector": base_vectors[2],
                 "metadata": {"category": "AI", "page": 3, "score": 92, "tag": "ml"}
             },
             {
                 "document": "Data science with Python and machine learning",
-                "embedding": [2.1, 3.1, 4.1],
+                "base_vector": base_vectors[3],
                 "metadata": {"category": "Data Science", "page": 4, "score": 90, "tag": "python"}
             },
             {
                 "document": "Introduction to artificial intelligence and neural networks",
-                "embedding": [1.2, 2.2, 3.2],
+                "base_vector": base_vectors[4],
                 "metadata": {"category": "AI", "page": 5, "score": 85, "tag": "neural"}
             },
             {
                 "document": "Advanced machine learning techniques and algorithms",
-                "embedding": [1.3, 2.3, 3.3],
+                "base_vector": base_vectors[5],
                 "metadata": {"category": "AI", "page": 6, "score": 93, "tag": "ml"}
             },
             {
                 "document": "Python tutorial for beginners in programming",
-                "embedding": [2.2, 3.2, 4.2],
+                "base_vector": base_vectors[6],
                 "metadata": {"category": "Programming", "page": 7, "score": 87, "tag": "python"}
             },
             {
                 "document": "Natural language processing with machine learning",
-                "embedding": [1.4, 2.4, 3.4],
+                "base_vector": base_vectors[7],
                 "metadata": {"category": "AI", "page": 8, "score": 91, "tag": "nlp"}
             }
         ]
@@ -104,8 +143,19 @@ class TestCollectionHybridSearch:
         for data in test_data:
             # Generate UUID for _id (convert to hex string for varbinary)
             record_id = str(uuid.uuid4()).replace("-", "")  # Remove dashes to get hex string
+            
+            # Generate vector with correct dimension
+            base_vec = data["base_vector"]
+            if dimension <= len(base_vec):
+                # Truncate if dimension is smaller
+                embedding = base_vec[:dimension]
+            else:
+                # Extend if dimension is larger (repeat pattern)
+                embedding = base_vec * ((dimension // len(base_vec)) + 1)
+                embedding = embedding[:dimension]
+            
             # Convert vector to string format: [1.0,2.0,3.0]
-            vector_str = "[" + ",".join(map(str, data["embedding"])) + "]"
+            vector_str = "[" + ",".join(map(str, embedding)) + "]"
             # Convert metadata to JSON string
             metadata_str = json.dumps(data["metadata"], ensure_ascii=False).replace("'", "\\'")
             # Escape single quotes in document
@@ -115,7 +165,7 @@ class TestCollectionHybridSearch:
                      VALUES (UNHEX('{record_id}'), '{document_str}', '{vector_str}', '{metadata_str}')"""
             client._server.execute(sql)
         
-        print(f"   Inserted {len(test_data)} test records")
+        print(f"   Inserted {len(test_data)} test records (dimension={dimension})")
     
     def _cleanup_collection(self, client, collection_name: str):
         """Helper method to cleanup test collection"""
@@ -151,11 +201,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -209,11 +259,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -222,7 +272,7 @@ class TestCollectionHybridSearch:
             print(f"\n✅ Testing hybrid_search with vector search only")
             results = collection.hybrid_search(
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "n_results": 5
                 },
                 n_results=5,
@@ -272,11 +322,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -291,7 +341,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "n_results": 10
                 },
                 rank={
@@ -334,11 +384,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -360,7 +410,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "where": {
                         "$and": [
                             {"category": {"$eq": "AI"}},
@@ -412,11 +462,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -440,7 +490,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "where": {
                         "tag": {"$in": ["ml", "python"]}
                     },
@@ -488,11 +538,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -545,11 +595,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -564,7 +614,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "n_results": 10
                 },
                 rank={
@@ -606,11 +656,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -619,7 +669,7 @@ class TestCollectionHybridSearch:
             print(f"\n✅ Testing hybrid_search with vector search only (SeekdbServer)")
             results = collection.hybrid_search(
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "n_results": 5
                 },
                 n_results=5,
@@ -664,11 +714,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -690,7 +740,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "where": {
                         "$and": [
                             {"category": {"$eq": "AI"}},
@@ -736,11 +786,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -764,7 +814,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "where": {
                         "tag": {"$in": ["ml", "python"]}
                     },
@@ -815,11 +865,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -874,11 +924,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -887,7 +937,7 @@ class TestCollectionHybridSearch:
             print(f"\n✅ Testing hybrid_search with vector search only (SeekdbEmbedded)")
             results = collection.hybrid_search(
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "n_results": 5
                 },
                 n_results=5,
@@ -934,11 +984,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -953,7 +1003,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "n_results": 10
                 },
                 rank={
@@ -997,11 +1047,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -1023,7 +1073,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "where": {
                         "$and": [
                             {"category": {"$eq": "AI"}},
@@ -1071,11 +1121,11 @@ class TestCollectionHybridSearch:
         
         # Create test collection
         collection_name = f"test_hybrid_search_{int(time.time())}"
-        collection = self._create_test_collection(client, collection_name, dimension=3)
+        collection, actual_dimension = self._create_test_collection(client, collection_name, dimension=3)
         
         try:
             # Insert test data
-            self._insert_test_data(client, collection_name)
+            self._insert_test_data(client, collection_name, dimension=actual_dimension)
             
             # Wait a bit for indexes to be ready
             time.sleep(1)
@@ -1099,7 +1149,7 @@ class TestCollectionHybridSearch:
                     "n_results": 10
                 },
                 knn={
-                    "query_embeddings": [1.0, 2.0, 3.0],
+                    "query_embeddings": self._generate_query_vector(actual_dimension),
                     "where": {
                         "tag": {"$in": ["ml", "python"]}
                     },

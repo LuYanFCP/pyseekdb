@@ -403,7 +403,10 @@ class BaseClient(BaseConnection, AdminAPI):
         """
         # First, try to get the collection
         if self.has_collection(name):
-            return self.get_collection(name, embedding_function=embedding_function)
+            # Collection exists, return it
+            # Note: get_collection doesn't accept embedding_function parameter
+            # The embedding_function is stored in the collection metadata, not passed here
+            return self.get_collection(name)
         
         # Collection doesn't exist, create it with provided or default configuration
         return self.create_collection(
