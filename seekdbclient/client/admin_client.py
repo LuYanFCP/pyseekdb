@@ -10,6 +10,7 @@ from .database import Database
 
 if TYPE_CHECKING:
     from .client_base import BaseClient, ClientAPI, HNSWConfiguration
+    from .embedding_function import EmbeddingFunction, Documents as EmbeddingDocuments
     from .collection import Collection
 
 DEFAULT_TENANT = "test"
@@ -154,10 +155,16 @@ class _ClientProxy:
         self,
         name: str,
         configuration: Optional["HNSWConfiguration"] = None,
+        embedding_function: Optional["EmbeddingFunction[EmbeddingDocuments]"] = None,
         **kwargs
     ) -> "Collection":
         """Proxy to server implementation - collection operations only"""
-        return self._server.create_collection(name=name, configuration=configuration, **kwargs)
+        return self._server.create_collection(
+            name=name,
+            configuration=configuration,
+            embedding_function=embedding_function,
+            **kwargs
+        )
     
     def get_collection(self, name: str) -> "Collection":
         """Proxy to server implementation - collection operations only"""
@@ -179,10 +186,16 @@ class _ClientProxy:
         self,
         name: str,
         configuration: Optional["HNSWConfiguration"] = None,
+        embedding_function: Optional["EmbeddingFunction[EmbeddingDocuments]"] = None,
         **kwargs
     ) -> "Collection":
         """Proxy to server implementation - collection operations only"""
-        return self._server.get_or_create_collection(name=name, configuration=configuration, **kwargs)
+        return self._server.get_or_create_collection(
+            name=name,
+            configuration=configuration,
+            embedding_function=embedding_function,
+            **kwargs
+        )
     
     def count_collection(self) -> int:
         """Proxy to server implementation - collection operations only"""
